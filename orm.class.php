@@ -4,7 +4,7 @@ abstract class orm {
 	protected $ormSettings = array();
 	
 	public function __construct($id = null) {
-		require_once("../_classes/class.db.php");
+		require_once("db/class.db.php");
 		
 		// If ID is null, we are creating a new object so stop processing here.
 		if($id == null) return;
@@ -38,7 +38,7 @@ abstract class orm {
 			// Need to copy original vars to a safe loaction in ormsettings then compare to object properties when destructing.
 			// Or could just write everything ...
 			
-			echo $args[0]."<br/>";
+			//echo $args[0]."<br/>";
 			$this->ormSettings["set"][$subject] = $args[0];
 			
 			// SHOULD RETURN REFERENCE TO THIS OBJECT TO ENABLE METHOD CHAINING
