@@ -80,6 +80,7 @@ abstract class orm {
 				unset($w);
 			}
 			
+			// Run the select query
 			$db = db::singleton();
 			$db->select(array("*"), get_class($this), $where);
 			$results = $db->runBatch();
@@ -100,7 +101,49 @@ abstract class orm {
 			}
 		}
 		
-		throw new BadMethodCallException("There is no function called $function. Your arguments were:\n".print_r($args, true));		
+		throw new BadMethodCallException("There is no function called $function. Your arguments were:\n".print_r($args, true));
+	}
+	
+	public static function __callStatic($function, $args) {
+		// Check whether called method is a find_by
+		if(preg_match("/find_by_(.*)/", $function, $matches)) {
+			// Explode the query into a set of field names, then check that we have a parameter for each field
+			$fields = explode("_and_", $matches[1]);
+			
+			if(count($fields) != count($args)) throw new Exception("You have attempted to search for a member on {count($fields)} fields, but have provided {count($args)} arguments to search those fields for. Ensure that you are providing a search term for each field specified.");
+			
+			// Build the fields and parameters into a WHERE array for the DB class
+			$where = array();
+			foreach($fields as $i => $field) {
+				$w[] = "AND";
+				$w[] = $field;
+				$w[] = "=";
+				$w[] = $args[$i];
+				$where[] = $w;
+				unset($w);
+			}
+			
+			// Run the select query
+			$db = db::singleton();
+			$db->select(array("*"), get_called_class(), $where);
+			$results = $db->runBatch();
+			$results = $results[0];
+			$object = get_called_class();
+			
+			// Empty result set
+			if(count($results) == 0) {
+				return null;
+			// Single result - return an object
+			} else if(count($results) == 1) {
+				return new $object(null, $results[0]);
+			// Many results - return an array of objects
+			} else {
+				$out = array();
+				foreach($results as $result) $out[] = new $object(null, $result);
+				return $out;
+			}
+		}
+		throw new BadMethodCallException("There is no static function called $function. Your arguments were:\n".print_r($args, true));
 	}
 	
 	function __destruct() {
