@@ -30,11 +30,13 @@ abstract class orm {
 			// When 'get' is run against this attribute (e.g. getGroup()), stdClasses are transformed into objects and returned.
 			if(substr($attribute, strlen($attribute) - 3) == '_id') $this->{substr($attribute, 0, strlen($attribute)-3)} = new stdClass();
 		}
+		// Keysort fields and hash. When destructing the object, we compare against this hash to see if anything has changed.
 		ksort($fields);
 		$this->ormSettings['objectHash'] = md5(implode($fields));
 	}
 	
-	public function __call($function, $args) {
+	// Returns references to enable method chaining for setters. Experimental.
+	public function &__call($function, $args) {
 		
 		// First, work out if a getter or setter was called
 		if(preg_match("/(get|set)([A-Z].*)/", $function, $matches)) {
@@ -54,9 +56,14 @@ abstract class orm {
 			if($action == "set") {
 				$this->$subject = $args[0];
 				
-				// TODO: Check whether $subject ends _id and update associated $subject without _id (and vice-versa)
+				// If the updated attribute ends in _id, blank out the associated object attribute (e.g. group for group_id)
+				// This ensures that when an ID is updated, the newly related object will be served, instead of the old one
+				if(substr($subject, strlen($subject) - 3) == '_id') $this->{substr($attribute, 0, strlen($attribute)-3)} = new stdClass();
 				
-				// SHOULD RETURN REFERENCE TO THIS OBJECT TO ENABLE METHOD CHAINING
+				// Similarly, if the updated attribute is actually a related object, update the _id attribute also (e.g. group_id for group, see above)
+				if(is_object($args[0])) $this->{$subject."_id"} = $this->$subject->getId();
+				
+				// TODO: SHOULD RETURN REFERENCE TO THIS OBJECT TO ENABLE METHOD CHAINING
 				return $this;
 			}
 		}
