@@ -1,8 +1,24 @@
 <?
+/**
+ * PHP Object-Relational-Mapper v0.9
+ * Copyright 2011, Russell Newman.
+ * Licenced under the MIT licence.
+ *
+ * @abstract
+ * @author		Russell Newman.
+ **/
 abstract class orm {
 	
 	protected $ormSettings = array();
 	
+	/**
+	 * __construct
+	 *
+	 * @param	int		$id			ID of desired element.
+	 * @param	array	$fields		Array of attributes that can be used to construct the object, rather than looking them up in the database.
+	 * @return	void
+	 * @author	Russell Newman
+	 **/
 	public function __construct($id = null, $fields = null) {
 		require_once("db.class.php");
 		
@@ -23,6 +39,13 @@ abstract class orm {
 		$this->ormBuildFromArray($fields);
 	}
 	
+	/**
+	 * ormBuildFromArray
+	 *
+	 * @param	array	$fields		Array of attributes for building the object, keyed on the attribute name.
+	 * @return	null
+	 * @author	Russell Newman
+	 **/
 	private function ormBuildFromArray($fields) {
 		foreach($fields as $attribute => $field) {
 			$this->$attribute = htmlentities($field);
@@ -30,12 +53,24 @@ abstract class orm {
 			// When 'get' is run against this attribute (e.g. getGroup()), stdClasses are transformed into objects and returned.
 			if(substr($attribute, strlen($attribute) - 3) == '_id') $this->{substr($attribute, 0, strlen($attribute)-3)} = new stdClass();
 		}
+		
+		// Bundle up object attributes and hash them. This must be done after doing htmlentities, relationships, etc
+		foreach($this as $name => $obj) if($name != "ormSettings" and !is_object($obj)) $hash[$name] = $obj;
 		// Keysort fields and hash. When destructing the object, we compare against this hash to see if anything has changed.
-		ksort($fields);
-		$this->ormSettings['objectHash'] = md5(implode($fields));
+		ksort($hash);
+		$this->ormSettings['objectHash'] = md5(implode($hash));
 	}
 	
 	// Returns references to enable method chaining for setters. Experimental.
+	
+	/**
+	 * __call
+	 *
+	 * @param	string	$function	Name of the function that was called.
+	 * @param	array	$args		Array of arguments that were passed to the function.
+	 * @return	mixed				Depending upon function type that was called.
+	 * @author	Russell Newman
+	 **/
 	public function &__call($function, $args) {
 		
 		// First, work out if a getter or setter was called
@@ -68,21 +103,37 @@ abstract class orm {
 			}
 		}
 		
-		if(preg_match("/find_by_(.*)/", $function, $matches)) {
-			return $this->ormFindBy($matches[1], $args);
-		}
+		if(preg_match("/find_by_(.*)/", $function, $matches)) return $this->ormFindBy($matches[1], $args);
 		
 		throw new BadMethodCallException("There is no function called $function. Your arguments were:\n".print_r($args, true));
 	}
 	
+	/**
+	 * __callStatic
+	 * Intercepts static calls to missing functions.
+	 * Used to intercept find_by_[field]() functions made in static context.
+	 * 
+	 * @static
+	 * @param	string	$function	Name of the function that was called.
+	 * @param	array	$args		Array of arguments that were passed to the function.
+	 * @return	mixed				Returns an object or an array of objects.
+	 * @author	Russell Newman
+	 **/
 	public static function __callStatic($function, $args) {
 		// Check whether called method is a find_by
-		if(preg_match("/find_by_(.*)/", $function, $matches)) {
-			return self::ormFindBy($matches[1], $args);
-		}
+		if(preg_match("/find_by_(.*)/", $function, $matches)) return self::ormFindBy($matches[1], $args);
 		throw new BadMethodCallException("There is no static function called $function. Your arguments were:\n".print_r($args, true));
 	}
 	
+	/**
+	 * ormFindBy
+	 * Parses find_by function calls, performs the lookups and returns the results
+	 *
+	 * @param	string	$fields		The fields we are searching on, based on the method call (without the find_by_ part).
+	 * @param	array	$args		Array of arguments that correspond to desired search fields.
+	 * @return	mixed				Array or object, depending on whether one or many objects were found.
+	 * @author	Russell Newman
+	 **/
 	private function ormFindBy($fields, $args) {
 		// Works out class name based on whether we are static or not. This is for PHP < 5.3, which does not have get_called_class() and would return 'orm' in static context
 		$class = !(isset($this)) ? get_called_class() : get_class($this);
@@ -121,6 +172,13 @@ abstract class orm {
 		return null;
 	}
 	
+	/**
+	 * __destruct
+	 * Collects up all object attributes, checks whether they have changed and commits to the database as necessary.
+	 * 
+	 * @return	void
+	 * @author	Russell Newman
+	 **/
 	function __destruct() {
 		// Bundle all object vars up into an array, excluding ormSettings and objects (related objects are copied via xyz_id fields)
 		foreach($this as $name => $obj) if($name != "ormSettings" and !is_object($obj)) $set[$name] = $obj;
@@ -133,7 +191,6 @@ abstract class orm {
 				$db->insert($set, get_class($this));
 			} else {
 				$db->update($set, get_class($this), array(array("WHERE", "id", $this->id)));
-				echo "updating";
 			}
 			$db->runBatch();
 		}
@@ -141,24 +198,33 @@ abstract class orm {
 	
 	/**
 	 * getParent
+	 * Finds the specified parent object of this object in a 1-to-many relationship.
 	 *
-	 * @param	string of object type name
+	 * @param	string	$object		Parent object type name.
 	 * @return	object
 	 * @author	Russell Newman
 	 **/
 	public function getParent($object = null) {
 		if($object == null) throw new InvalidArgumentException("You did not specify what type of parent object you wanted.");
-		// could poss use instanceof stdClass here
+		
 		// Check that the ID of the parent is set and that we haven't already loaded the parent.
 		// (Parents that are not yet loaded will be populated with stdClass as opposed to the actual object).
-		if(!empty($this->{$object."_id"}) and get_class($this->$object) == "stdClass") {
-			$this->$object = new $object($this->{$object."_id"});
-		}
+		if(!empty($this->{$object."_id"}) and $this->$object instanceof stdClass) $this->$object = new $object($this->{$object."_id"});
+		
 		return $this->$object;
 	}
 	
+	/**
+	 * getChildren
+	 * Finds the specified child objects of this object in a 1-to-many relationship. Can also filter and order child objects.
+	 *
+	 * @param	string	$object		Child object type name.
+	 * @param	string	$where		Valid SQL WHERE statement.
+	 * @param	string	$order		Valid SQL ORDER BY statement.
+	 * @return	array
+	 * @author	Russell Newman
+	 **/
 	public function getChildren($object = null, $where = null, $order = null) {
-		//echo "<p>Ordering $object by $order WHERE $where</p>";
 		if($object == null) throw new InvalidArgumentException("You did not specify what type of child object you wanted.");
 		
 		// Check to see if children elements are already loaded. Load them if we need them.
@@ -170,15 +236,12 @@ abstract class orm {
 			if($order != null) $order = "ORDER BY $order";
 			$children = $db->single("SELECT id FROM `$object` WHERE ".get_class($this)."_id = '$this->id'$where $order");
 			
-			if(!empty($children)) {
-				foreach($children as $child) {
-					$this->{$object."_children"}->elements[$child['id']] = new $object($child['id']);
-				}
+			if(!empty($children)) foreach($children as $child) {
+				$this->{$object."_children"}->elements[$child['id']] = new $object($child['id']);
 			}
 		
 		// Re-order the children elements if a changed order has been requested.
 		} else if($order != $this->{$object."_children"}->order) {
-			//echo "SELECT id FROM $object WHERE ".get_class($this)."_id = '$this->id' ORDER BY $order";
 			$db = db::singleton();
 			if($where != null) $where = " AND $where";
 			$newOrder = $db->single("SELECT id FROM `$object` WHERE ".get_class($this)."_id = '$this->id' $where ORDER BY $order");
@@ -192,6 +255,16 @@ abstract class orm {
 		return $this->{$object."_children"}->elements;
 	}
 	
+	
+	/**
+	 * getRelated
+	 * Finds the specified related elements of this element in a many-to-many relationship, via an intermediary table.
+	 * No filtering or ordering as of yet.
+	 *
+	 * @param	string	$object		Type of related element requested.
+	 * @return	void
+	 * @author	Russell Newman
+	 **/
 	// Gets related objects from an intermediary table (i.e. many-to-many join)
 	public function getRelated($object = null) {
 		if($object == null) throw new InvalidArgumentException("You did not specify what type of related objects you wanted.");
@@ -212,6 +285,13 @@ abstract class orm {
 		// could also add ORDER criteria and ASC/DESC
 	}
 	
+	/**
+	 * __toString
+	 * Returns a string of the object's 'name' attribute or, failing that, the ID of the object.
+	 *
+	 * @return	string
+	 * @author	Russell Newman
+	 **/
 	public function __toString() {
 		return (empty($this->name)) ? (String)$this->id : $this->name;
 	}
