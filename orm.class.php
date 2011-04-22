@@ -73,9 +73,9 @@ abstract class orm {
 			$where = array();
 			foreach($fields as $i => $field) {
 				$w[] = "AND";
-				$w[] = $field;
+				$w[] = is_object($args[$i]) ? $field."_id" : $field;
 				$w[] = "=";
-				$w[] = $args[$i];
+				$w[] = is_object($args[$i]) ? $args[$i]->getId() : $args[$i];
 				$where[] = $w;
 				unset($w);
 			}
@@ -116,9 +116,9 @@ abstract class orm {
 			$where = array();
 			foreach($fields as $i => $field) {
 				$w[] = "AND";
-				$w[] = $field;
+				$w[] = is_object($args[$i]) ? $field."_id" : $field;
 				$w[] = "=";
-				$w[] = $args[$i];
+				$w[] = is_object($args[$i]) ? $args[$i]->getId() : $args[$i];
 				$where[] = $w;
 				unset($w);
 			}
