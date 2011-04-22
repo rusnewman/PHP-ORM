@@ -6,7 +6,7 @@ abstract class orm {
 	public function __construct($id = null, $fields = null) {
 		require_once("db.class.php");
 		
-		// Prevent folks from trying to create objects using IDs and fields.
+		// Prevent folks from trying to create objects using IDs and fields simultaneously.
 		if(isset($id, $fields)) throw new Exception("You cannot instantiate an object using ID and and array of fields. Use one or the other, but not both simultaneously.");
 		
 		// If ID is null and no fields are specified, we are creating a new object so stop processing here.
@@ -30,6 +30,8 @@ abstract class orm {
 			// When 'get' is run against this attribute (e.g. getGroup()), stdClasses are transformed into objects and returned.
 			if(substr($attribute, strlen($attribute) - 3) == '_id') $this->{substr($attribute, 0, strlen($attribute)-3)} = new stdClass();
 		}
+		ksort($fields);
+		$this->ormSettings['objectHash'] = md5(implode($fields));
 	}
 	
 	public function __call($function, $args) {
@@ -50,55 +52,17 @@ abstract class orm {
 			
 			// When setting, could check for $this->validate$subject($arg[0]); which would be implemented by the user.
 			if($action == "set") {
-				// PROBLEM: If the setName (e.g.) method is written into a child class, the attribute will not be written to ormsettings->set.
-				// Need to copy original vars to a safe location in ormsettings then compare to object properties when destructing.
-				// Or could just write everything ...
-
-				//echo $args[0]."<br/>";
-				$this->ormSettings["set"][$subject] = $args[0];
 				$this->$subject = $args[0];
+				
+				// TODO: Check whether $subject ends _id and update associated $subject without _id (and vice-versa)
+				
 				// SHOULD RETURN REFERENCE TO THIS OBJECT TO ENABLE METHOD CHAINING
 				return $this;
 			}
 		}
 		
-		// Not a getter or setter? Check whether it is a find_by
 		if(preg_match("/find_by_(.*)/", $function, $matches)) {
-			// Explode the query into a set of field names, then check that we have a parameter for each field
-			$fields = explode("_and_", $matches[1]);
-			
-			if(count($fields) != count($args)) throw new Exception("You have attempted to search for a member on {count($fields)} fields, but have provided {count($args)} arguments to search those fields for. Ensure that you are providing a search term for each field specified.");
-			
-			// Build the fields and parameters into a WHERE array for the DB class
-			$where = array();
-			foreach($fields as $i => $field) {
-				$w[] = "AND";
-				$w[] = is_object($args[$i]) ? $field."_id" : $field;
-				$w[] = "=";
-				$w[] = is_object($args[$i]) ? $args[$i]->getId() : $args[$i];
-				$where[] = $w;
-				unset($w);
-			}
-			
-			// Run the select query
-			$db = db::singleton();
-			$db->select(array("*"), get_class($this), $where);
-			$results = $db->runBatch();
-			$results = $results[0];
-			$object = get_class($this);
-			
-			// Empty result set
-			if(count($results) == 0) {
-				return null;
-			// Single result - return an object
-			} else if(count($results) == 1) {
-				return new $object(null, $results[0]);
-			// Many results - return an array of objects
-			} else {
-				$out = array();
-				foreach($results as $result) $out[] = new $object(null, $result);
-				return $out;
-			}
+			return $this->ormFindBy($matches[1], $args);
 		}
 		
 		throw new BadMethodCallException("There is no function called $function. Your arguments were:\n".print_r($args, true));
@@ -107,69 +71,64 @@ abstract class orm {
 	public static function __callStatic($function, $args) {
 		// Check whether called method is a find_by
 		if(preg_match("/find_by_(.*)/", $function, $matches)) {
-			// Explode the query into a set of field names, then check that we have a parameter for each field
-			$fields = explode("_and_", $matches[1]);
-			
-			if(count($fields) != count($args)) throw new Exception("You have attempted to search for a member on {count($fields)} fields, but have provided {count($args)} arguments to search those fields for. Ensure that you are providing a search term for each field specified.");
-			
-			// Build the fields and parameters into a WHERE array for the DB class
-			$where = array();
-			foreach($fields as $i => $field) {
-				$w[] = "AND";
-				$w[] = is_object($args[$i]) ? $field."_id" : $field;
-				$w[] = "=";
-				$w[] = is_object($args[$i]) ? $args[$i]->getId() : $args[$i];
-				$where[] = $w;
-				unset($w);
-			}
-			
-			// Run the select query
-			$db = db::singleton();
-			$db->select(array("*"), get_called_class(), $where);
-			$results = $db->runBatch();
-			$results = $results[0];
-			$object = get_called_class();
-			
-			// Empty result set
-			if(count($results) == 0) {
-				return null;
-			// Single result - return an object
-			} else if(count($results) == 1) {
-				return new $object(null, $results[0]);
-			// Many results - return an array of objects
-			} else {
-				$out = array();
-				foreach($results as $result) $out[] = new $object(null, $result);
-				return $out;
-			}
+			return self::ormFindBy($matches[1], $args);
 		}
 		throw new BadMethodCallException("There is no static function called $function. Your arguments were:\n".print_r($args, true));
 	}
 	
+	private function ormFindBy($fields, $args) {
+		// Works out class name based on whether we are static or not. This is for PHP < 5.3, which does not have get_called_class() and would return 'orm' in static context
+		$class = !(isset($this)) ? get_called_class() : get_class($this);
+		
+		// Explode the query into a set of field names, then check that we have a parameter for each field
+		$fields = explode("_and_", $fields);
+		
+		if(count($fields) != count($args)) throw new Exception("You have attempted to search on {count($fields)} fields, but have provided {count($args)} arguments to search those fields for. Ensure that you are providing a search term for each field specified.");
+		
+		// Build the fields and parameters into a WHERE array for the DB class
+		$where = array();
+		foreach($fields as $i => $field) {
+			$w[] = "AND";
+			$w[] = is_object($args[$i]) ? $field."_id" : $field;
+			$w[] = "=";
+			$w[] = is_object($args[$i]) ? $args[$i]->getId() : $args[$i];
+			$where[] = $w;
+			unset($w);
+		}
+		
+		// Run the select query
+		$db = db::singleton();
+		$db->select(array("*"), $class, $where);
+		$results = $db->runBatch();
+		$results = $results[0];
+		
+		// Single result - return an object
+		if(count($results) == 1) {
+			return new $class(null, $results[0]);
+		// Many results - return an array of objects
+		} else if(count($results) >1) {
+			$out = array();
+			foreach($results as $result) $out[] = new $class(null, $result);
+			return $out;
+		}
+		return null;
+	}
+	
 	function __destruct() {
-		/*
-			TODO	Destruct currently saves regardless of whether the object has been changed or not.
-					Need to update only if the object has been changed!
-					(i.e. only if it doesn't match the one in the DB).
-		*/
+		// Bundle all object vars up into an array, excluding ormSettings and objects (related objects are copied via xyz_id fields)
+		foreach($this as $name => $obj) if($name != "ormSettings" and !is_object($obj)) $set[$name] = $obj;
 		
-		//return;
-		// user could add array of compulsory fields in their classes with a standard array name. Best to do this check in __set().
-		
-		if(!empty($this->ormSettings["set"])) {
-			foreach($this as $name => $obj) if($name != "ormSettings" and !is_object($obj)) $set[$name] = $obj;
+		// Sort vars and check against the hash made when constructing the object (to find if any changes have been made)
+		ksort($set);
+		if(empty($this->ormSettings['objectHash']) or $this->ormSettings['objectHash'] != md5(implode($set))) {
 			$db = db::singleton();
-			
-			/*
-				TODO Do we need to remove ID from UPDATE query? Perhaps not, as the user may be updating the ID!
-			*/
 			if(!isset($this->id)) {
 				$db->insert($set, get_class($this));
-				$db->runBatch();
 			} else {
 				$db->update($set, get_class($this), array(array("WHERE", "id", $this->id)));
-				$db->runBatch();
+				echo "updating";
 			}
+			$db->runBatch();
 		}
 	}
 	
@@ -202,7 +161,7 @@ abstract class orm {
 			$db = db::singleton();
 			if($where != null) $where = " AND $where";
 			if($order != null) $order = "ORDER BY $order";
-			$children = $db->single("SELECT id FROM $object WHERE ".get_class($this)."_id = '$this->id'$where $order");
+			$children = $db->single("SELECT id FROM `$object` WHERE ".get_class($this)."_id = '$this->id'$where $order");
 			
 			if(!empty($children)) {
 				foreach($children as $child) {
@@ -215,7 +174,7 @@ abstract class orm {
 			//echo "SELECT id FROM $object WHERE ".get_class($this)."_id = '$this->id' ORDER BY $order";
 			$db = db::singleton();
 			if($where != null) $where = " AND $where";
-			$newOrder = $db->single("SELECT id FROM $object WHERE ".get_class($this)."_id = '$this->id' $where ORDER BY $order");
+			$newOrder = $db->single("SELECT id FROM `$object` WHERE ".get_class($this)."_id = '$this->id' $where ORDER BY $order");
 			$newChildren = array();
 			foreach($newOrder as $item) $newChildren[$item['id']] = $this->{$object."_children"}->elements[$item['id']];
 			$this->{$object."_children"}->elements = $newChildren;
@@ -231,19 +190,17 @@ abstract class orm {
 		if($object == null) throw new InvalidArgumentException("You did not specify what type of related objects you wanted.");
 		if(empty($this->id)) throw new InvalidArgumentException("This object does not have an ID, and thus cannot have related objects.");
 		if(!isset($this->{$object."_members"})) {
-			$db = db::singleton();
-			$t2 = get_class($this);
-			$table = array($object, $t2);
+			
+			// Build the name of the joining table. Create array, sort() to get the two names in alphabetical order, then implode with _ to get actual name.
+			$table = array($object, get_class($this));
 			$table = implode("_", sort($table));
 			$this->{$object."_members"} = array();
-			$objects = $db->single("SELECT {$object}_id FROM $table WHERE {get_class($this)}_id = '$this->id'");
+			
+			$db = db::singleton();
+			$objects = $db->single("SELECT {$object}_id FROM `$table` WHERE {get_class($this)}_id = '$this->id'");
 			if(!empty($objects)) foreach($objects as $o) $this->{$object."_members"}[] = new $object($o['id']);
 		}
 		return $this->{$object."_members"};
-		// if ID is set in ormSettings else throw
-		// SELECT id FROM $object WHERE {get_class()}_id = $this->ormSettings['id'];
-		// make array of new objects of type $object
-		// serve
 		
 		// could also add ORDER criteria and ASC/DESC
 	}
