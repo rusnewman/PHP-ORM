@@ -14,6 +14,7 @@ Next, include the boot.php file in your PHP, wherever you want to use it:
 ```php
 include("../orm/boot.php");
 ```
+
 Now refer to the Wiki for usage instructions.
 
 I recommend that, where possible, you keep the ORM source files outside the directory that is published by your web server. That is, if your Apache server publishes the 'htdocs' directory, keep your ORM files above this directory, safe from prying eyes.

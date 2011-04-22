@@ -3,17 +3,27 @@ abstract class orm {
 	
 	protected $ormSettings = array();
 	
-	public function __construct($id = null) {
-		require_once("db/class.db.php");
+	public function __construct($id = null, $fields = null) {
+		require_once("db.class.php");
 		
-		// If ID is null, we are creating a new object so stop processing here.
-		if($id == null) return;
-		//$this->id = $id;
-		$db = db::singleton();
-		$fields = $db->oneRow("SELECT * FROM ".get_class($this)." WHERE id = '$id'");
-		if(empty($fields)) throw new DomainException("No ".get_class($this)." object was found in the database with ID $id.");
+		// Prevent folks from trying to create objects using IDs and fields.
+		if(isset($id, $fields)) throw new Exception("You cannot instantiate an object using ID and and array of fields. Use one or the other, but not both simultaneously.");
 		
-		// Now set up all the fields we found in the DB as variables in the class
+		// If ID is null and no fields are specified, we are creating a new object so stop processing here.
+		if($id == null and $fields == null) return;
+		
+		// If the fields haven't been passed in through $fields, look up using the ID number
+		if($fields == null) {
+			$db = db::singleton();
+			$fields = $db->oneRow("SELECT * FROM `".get_class($this)."` WHERE id = '$id';");
+			if(empty($fields)) throw new DomainException("No ".get_class($this)." object was found in the database with ID $id.");
+		}
+		
+		// Now set up all the fields we found in the DB (or that were passed in) as variables in the class
+		$this->ormBuildFromArray($fields);
+	}
+	
+	private function ormBuildFromArray($fields) {
 		foreach($fields as $attribute => $field) {
 			$this->$attribute = htmlentities($field);
 			// Identifies 1-n relationships by field name (e.g group_id) and makes a stdclass in 'group'.
@@ -23,27 +33,72 @@ abstract class orm {
 	}
 	
 	public function __call($function, $args) {
-		$action = substr($function, 0, 3);
-		$subject = strtolower(substr($function, 3));
 		
-		if(($action == "get" or $action == "set") and !property_exists($this, $subject)) throw new BadMethodCallException("You tried to $action $subject, but no variable exists by the name of $subject. Check that the variable is visible to the ORM in your class (it should be protected or public).");
-		
-		if($action == "get") {
-			if($this->$subject instanceof stdClass) $this->$subject = new $subject($this->$subject."_id");
-			return $this->$subject;
+		// First, work out if a getter or setter was called
+		if(preg_match("/(get|set)([A-Z].*)/", $function, $matches)) {
+			// We have a getter or setter
+			$matches[2]{0} = strtolower($matches[2]{0});
+			$action = $matches[1];				// e.g. get
+			$subject = $matches[2];				// e.g. name
+			
+			if(!property_exists($this, $subject)) throw new BadMethodCallException("You tried to $action $subject, but there is no $subject variable. Check that the variable exists in your database, and that you have requested a valid object.");
+
+			if($action == "get") {
+				if($this->$subject instanceof stdClass) $this->$subject = new $subject($this->$subject."_id");
+				return $this->$subject;
+			}
+			
+			// When setting, could check for $this->validate$subject($arg[0]); which would be implemented by the user.
+			if($action == "set") {
+				// PROBLEM: If the setName (e.g.) method is written into a child class, the attribute will not be written to ormsettings->set.
+				// Need to copy original vars to a safe location in ormsettings then compare to object properties when destructing.
+				// Or could just write everything ...
+
+				//echo $args[0]."<br/>";
+				$this->ormSettings["set"][$subject] = $args[0];
+				$this->$subject = $args[0];
+				// SHOULD RETURN REFERENCE TO THIS OBJECT TO ENABLE METHOD CHAINING
+				return $this;
+			}
 		}
-		// When setting, could check for $this->validate$subject($arg[0]); which would be implemented by the user.
-		if($action == "set") {
-			// PROBLEM: If the setName (e.g.) method is written into a child class, the attribute will not be written to ormsettings->set.
-			// Need to copy original vars to a safe loaction in ormsettings then compare to object properties when destructing.
-			// Or could just write everything ...
+		
+		// Not a getter or setter? Check whether it is a find_by
+		if(preg_match("/find_by_(.*)/", $function, $matches)) {
+			// Explode the query into a set of field names, then check that we have a parameter for each field
+			$fields = explode("_and_", $matches[1]);
 			
-			//echo $args[0]."<br/>";
-			$this->ormSettings["set"][$subject] = $args[0];
+			if(count($fields) != count($args)) throw new Exception("You have attempted to search for a member on {count($fields)} fields, but have provided {count($args)} arguments to search those fields for. Ensure that you are providing a search term for each field specified.");
 			
-			// SHOULD RETURN REFERENCE TO THIS OBJECT TO ENABLE METHOD CHAINING
-			return $this->$subject = $args[0];
-		} 
+			// Build the fields and parameters into a WHERE array for the DB class
+			$where = array();
+			foreach($fields as $i => $field) {
+				$w[] = "AND";
+				$w[] = $field;
+				$w[] = "=";
+				$w[] = $args[$i];
+				$where[] = $w;
+				unset($w);
+			}
+			
+			$db = db::singleton();
+			$db->select(array("*"), get_class($this), $where);
+			$results = $db->runBatch();
+			$results = $results[0];
+			$object = get_class($this);
+			
+			// Empty result set
+			if(count($results) == 0) {
+				return null;
+			// Single result - return an object
+			} else if(count($results) == 1) {
+				return new $object(null, $results[0]);
+			// Many results - return an array of objects
+			} else {
+				$out = array();
+				foreach($results as $result) $out[] = new $object(null, $result);
+				return $out;
+			}
+		}
 		
 		throw new BadMethodCallException("There is no function called $function. Your arguments were:\n".print_r($args, true));		
 	}
