@@ -1,4 +1,21 @@
-<?
+<?php
+
+class collection extends stdClass {
+	
+	public function &__call($function, $args) {
+		if(preg_match("/^order_by_(.*?)_?(asc|desc)?$/", $function, $matches)) {
+			$a = array();
+			$direction = empty($matches[2]) ? "asc" : $matches[2];
+			foreach($this as $i) $a[] = $i;
+			usort($a, array("not_sure_what_this_bit_is_for___doesnt_seem_to_break_anything", "_ormCompareBy_{$matches[1]}_{$direction}"));
+			$out = new collection();
+			foreach($a as $i => $b) $out->{"a".$i} = $b;
+			return $out;
+		}
+		throw new BadMethodCallException("Unknown method.");
+	}
+}
+
 /**
  * PHP Object-Relational-Mapper v0.9
  * Copyright 2011, Russell Newman.
@@ -122,6 +139,20 @@ abstract class orm {
 	public static function __callStatic($function, $args) {
 		// Check whether called method is a find_by
 		if(preg_match("/find_by_(.*)/", $function, $matches)) return self::ormFindBy($matches[1], $args);
+		
+		// Intercepts comparison functions and performs to appropriate comparison.
+		// This is necessary to enable order_by functions.
+		if(preg_match("/_ormCompareBy_(.*)_(asc|desc)/", $function, $matches)) {
+			$up = ($matches[2] == "asc") ? 1 : -1;
+			$down = ($matches[2] == "asc") ? -1 : 1;
+			// Check that the variable we are comparing actually exists in both objects.
+			if(!empty($args[0]->$matches[1]) and !empty($args[1]->$matches[1])) {
+				if ($args[0]->$matches[1] == $args[1]->$matches[1]) return 0;
+		    	return ($args[0]->$matches[1] < $args[1]->$matches[1]) ? $down : $up;
+			}
+			throw new Exception("You tried to perform a comparison (or sort/ordering) upon an attribute that does not exist. Are you sure the '{$matches[1]}' attribute exists inside '".get_class($args[0])."' objects?");
+		}
+		
 		throw new BadMethodCallException("There is no static function called $function. Your arguments were:\n".print_r($args, true));
 	}
 	
@@ -164,9 +195,11 @@ abstract class orm {
 		if(count($results) == 1) {
 			return new $class(null, $results[0]);
 		// Many results - return an array of objects
-		} else if(count($results) >1) {
-			$out = array();
-			foreach($results as $result) $out[] = new $class(null, $result);
+		} else if(count($results) > 1) {
+			//$out = array();
+			$out = new collection();
+			//foreach($results as $i => $result) $out[] = new $class(null, $result);
+			foreach($results as $i => $result) $out->{"a".$i} = new $class(null, $result);
 			return $out;
 		}
 		return null;
