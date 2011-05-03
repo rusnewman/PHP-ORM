@@ -1,18 +1,20 @@
 <?php
-
-class collection extends stdClass {
+class ormCollection {
 	
 	public function &__call($function, $args) {
 		if(preg_match("/^order_by_(.*?)_?(asc|desc)?$/", $function, $matches)) {
-			$a = array();
+			$a = (array)$this;
 			$direction = empty($matches[2]) ? "asc" : $matches[2];
-			foreach($this as $i) $a[] = $i;
 			usort($a, array("not_sure_what_this_bit_is_for___doesnt_seem_to_break_anything", "_ormCompareBy_{$matches[1]}_{$direction}"));
-			$out = new collection();
+			$out = new ormCollection();
 			foreach($a as $i => $b) $out->{"a".$i} = $b;
 			return $out;
 		}
 		throw new BadMethodCallException("Unknown method.");
+	}
+	
+	public function __toString() {
+		return (string)count((array)$this);
 	}
 }
 
@@ -48,7 +50,7 @@ abstract class orm {
 		// If the fields haven't been passed in through $fields, look up using the ID number
 		if($fields == null) {
 			$db = db::singleton();
-			$fields = $db->oneRow("SELECT * FROM `".get_class($this)."` WHERE id = '$id';");
+			$fields = $db->oneRow("SELECT * FROM `".get_class($this)."` WHERE `id` = '$id';");
 			if(empty($fields)) throw new DomainException("No ".get_class($this)." object was found in the database with ID $id.");
 		}
 		
@@ -78,14 +80,12 @@ abstract class orm {
 		$this->ormSettings['objectHash'] = md5(implode($hash));
 	}
 	
-	// Returns references to enable method chaining for setters. Experimental.
-	
 	/**
 	 * __call
 	 *
 	 * @param	string	$function	Name of the function that was called.
 	 * @param	array	$args		Array of arguments that were passed to the function.
-	 * @return	mixed				Depending upon function type that was called.
+	 * @return	mixed				Depending upon function type that was called. Often $this to enable method chaining.
 	 * @author	Russell Newman
 	 **/
 	public function &__call($function, $args) {
@@ -143,6 +143,7 @@ abstract class orm {
 		// Intercepts comparison functions and performs to appropriate comparison.
 		// This is necessary to enable order_by functions.
 		if(preg_match("/_ormCompareBy_(.*)_(asc|desc)/", $function, $matches)) {
+			// Set sort up/down values depending on asc or desc
 			$up = ($matches[2] == "asc") ? 1 : -1;
 			$down = ($matches[2] == "asc") ? -1 : 1;
 			// Check that the variable we are comparing actually exists in both objects.
@@ -194,15 +195,13 @@ abstract class orm {
 		// Single result - return an object
 		if(count($results) == 1) {
 			return new $class(null, $results[0]);
-		// Many results - return an array of objects
+		// Many results - return a collection of objects
 		} else if(count($results) > 1) {
-			//$out = array();
-			$out = new collection();
-			//foreach($results as $i => $result) $out[] = new $class(null, $result);
+			$out = new ormCollection();
 			foreach($results as $i => $result) $out->{"a".$i} = new $class(null, $result);
 			return $out;
 		}
-		return null;
+		return new ormCollection();
 	}
 	
 	/**
@@ -267,7 +266,7 @@ abstract class orm {
 			$db = db::singleton();
 			if($where != null) $where = " AND $where";
 			if($order != null) $order = "ORDER BY $order";
-			$children = $db->single("SELECT id FROM `$object` WHERE ".get_class($this)."_id = '$this->id'$where $order");
+			$children = $db->single("SELECT `id` FROM `$object` WHERE `".get_class($this)."_id` = '$this->id'$where $order");
 			
 			if(!empty($children)) foreach($children as $child) {
 				$this->{$object."_children"}->elements[$child['id']] = new $object($child['id']);
@@ -277,7 +276,7 @@ abstract class orm {
 		} else if($order != $this->{$object."_children"}->order) {
 			$db = db::singleton();
 			if($where != null) $where = " AND $where";
-			$newOrder = $db->single("SELECT id FROM `$object` WHERE ".get_class($this)."_id = '$this->id' $where ORDER BY $order");
+			$newOrder = $db->single("SELECT `id` FROM `$object` WHERE `".get_class($this)."_id` = '$this->id' $where ORDER BY $order");
 			$newChildren = array();
 			foreach($newOrder as $item) $newChildren[$item['id']] = $this->{$object."_children"}->elements[$item['id']];
 			$this->{$object."_children"}->elements = $newChildren;
@@ -287,7 +286,6 @@ abstract class orm {
 		}
 		return $this->{$object."_children"}->elements;
 	}
-	
 	
 	/**
 	 * getRelated
@@ -310,7 +308,7 @@ abstract class orm {
 			$this->{$object."_members"} = array();
 			
 			$db = db::singleton();
-			$objects = $db->single("SELECT {$object}_id FROM `$table` WHERE {get_class($this)}_id = '$this->id'");
+			$objects = $db->single("SELECT `{$object}_id` FROM `$table` WHERE `{get_class($this)}_id` = '$this->id'");
 			if(!empty($objects)) foreach($objects as $o) $this->{$object."_members"}[] = new $object($o['id']);
 		}
 		return $this->{$object."_members"};
