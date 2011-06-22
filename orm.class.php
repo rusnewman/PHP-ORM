@@ -217,7 +217,7 @@ abstract class orm {
 		
 		// Sort vars and check against the hash made when constructing the object (to find if any changes have been made)
 		ksort($set);
-		if(empty($this->ormSettings['objectHash']) or $this->ormSettings['objectHash'] != md5(implode($set))) {
+		if(empty($this->ormSettings['objectHash']) or $this->ormSettings['objectHash'] != md5(implode("", $set))) {
 			$db = db::singleton();
 			if(!isset($this->id)) {
 				$db->insert($set, get_class($this));
@@ -293,27 +293,30 @@ abstract class orm {
 	 * No filtering or ordering as of yet.
 	 *
 	 * @param	string	$object		Type of related element requested.
+	 * @param	string	$where		Valid SQL WHERE statement.
+	 * @param	string	$order		Valid SQL ORDER BY statement.
 	 * @return	void
 	 * @author	Russell Newman
 	 **/
 	// Gets related objects from an intermediary table (i.e. many-to-many join)
-	public function getRelated($object = null) {
+	public function getRelated($object = null, $where = null, $order = null) {
 		if($object == null) throw new InvalidArgumentException("You did not specify what type of related objects you wanted.");
 		if(empty($this->id)) throw new InvalidArgumentException("This object does not have an ID, and thus cannot have related objects.");
 		if(!isset($this->{$object."_members"})) {
 			
 			// Build the name of the joining table. Create array, sort() to get the two names in alphabetical order, then implode with _ to get actual name.
 			$table = array($object, get_class($this));
-			$table = implode("_", sort($table));
+			sort($table);
+			$table = implode("_", $table);
 			$this->{$object."_members"} = array();
+			if($where != null) $where = " AND $where";
+			if($order != null) $order = "ORDER BY $order";
 			
 			$db = db::singleton();
-			$objects = $db->single("SELECT `{$object}_id` FROM `$table` WHERE `{get_class($this)}_id` = '$this->id'");
+			$objects = $db->single("SELECT `{$object}_id` FROM `$table` WHERE `{get_class($this)}_id` = '$this->id'$where $order");
 			if(!empty($objects)) foreach($objects as $o) $this->{$object."_members"}[] = new $object($o['id']);
 		}
 		return $this->{$object."_members"};
-		
-		// could also add ORDER criteria and ASC/DESC
 	}
 	
 	/**
