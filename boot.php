@@ -1,5 +1,8 @@
 <?
-	const AUTO_GENERATE_CLASSES = true;
+	const ORM_AUTO_GENERATE_CLASSES = true;
+	
+	const ORM_READ_ONLY = false;
+	const ORM_EMULATE_WRITES = true;
 	
 	require_once("orm.class.php");
 	
@@ -10,5 +13,5 @@
 		}
 		
 		// Experimental auto-class-generator as a last resort.
-		if(AUTO_GENERATE_CLASSES) @eval("class $class extends orm { }");
+		if(ORM_AUTO_GENERATE_CLASSES) @eval("class $class extends orm { }");
 	}

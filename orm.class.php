@@ -39,7 +39,7 @@ abstract class orm {
 	 * @author	Russell Newman
 	 **/
 	public function __construct($id = null, $fields = null) {
-		require_once("db.class.php");
+		require_once("db/db.class.php");
 		
 		// Prevent folks from trying to create objects using IDs and fields simultaneously.
 		if(isset($id, $fields)) throw new Exception("You cannot instantiate an object using ID and and array of fields. Use one or the other, but not both simultaneously.");
@@ -106,6 +106,9 @@ abstract class orm {
 			
 			// When setting, could check for $this->validate$subject($arg[0]); which would be implemented by the user.
 			if($action == "set") {
+				// Check for read-only mode
+				if(ORM_READ_ONLY) throw new Exception("The ORM is currently in read-only mode, and cannot save changes to the database. To remove this message, use emulated writes instead of read-only mode.");
+				
 				$this->$subject = $args[0];
 				
 				// If the updated attribute ends in _id, blank out the associated object attribute (e.g. group for group_id)
@@ -212,6 +215,9 @@ abstract class orm {
 	 * @author	Russell Newman
 	 **/
 	function __destruct() {
+		// Check for read-only and emulation modes, and prevent writing as necessary.
+		if(ORM_READ_ONLY or ORM_EMULATE_WRITES) return;
+		
 		// Bundle all object vars up into an array, excluding ormSettings and objects (related objects are copied via xyz_id fields)
 		foreach($this as $name => $obj) if($name != "ormSettings" and !is_object($obj)) $set[$name] = $obj;
 		
@@ -313,7 +319,8 @@ abstract class orm {
 			if($order != null) $order = "ORDER BY $order";
 			
 			$db = db::singleton();
-			$objects = $db->single("SELECT `{$object}_id` FROM `$table` WHERE `{get_class($this)}_id` = '$this->id'$where $order");
+			$objects = $db->single("SELECT a.`{$object}_id` AS id FROM `$table` a JOIN {$object} b ON a.`{$object}_id` = b.id WHERE `".get_class($this)."_id` = '{$this->id}'$where $order");
+			print_r($objects);
 			if(!empty($objects)) foreach($objects as $o) $this->{$object."_members"}[] = new $object($o['id']);
 		}
 		return $this->{$object."_members"};
@@ -328,5 +335,9 @@ abstract class orm {
 	 **/
 	public function __toString() {
 		return (empty($this->name)) ? (String)$this->id : $this->name;
+	}
+	
+	public function validate() {
+		$out = stdclass();
 	}
 }
