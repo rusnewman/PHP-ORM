@@ -1,8 +1,8 @@
 <?
-	const ORM_AUTO_GENERATE_CLASSES = true;
+	define("ORM_AUTO_GENERATE_CLASSES", true);
 	
-	const ORM_READ_ONLY = false;
-	const ORM_EMULATE_WRITES = true;
+	define("ORM_READ_ONLY", false);
+	define("ORM_EMULATE_WRITES",true);
 	
 	require_once("orm.class.php");
 	

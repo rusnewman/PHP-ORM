@@ -215,6 +215,11 @@ abstract class orm {
 	 * @author	Russell Newman
 	 **/
 	function __destruct() {
+		
+		// Testing new commit method. If successful, the rest of this method will be deleted.
+		$this->commit();
+		return;
+		
 		// Check for read-only and emulation modes, and prevent writing as necessary.
 		if(ORM_READ_ONLY or ORM_EMULATE_WRITES) return;
 		
@@ -231,6 +236,41 @@ abstract class orm {
 				$db->update($set, get_class($this), array(array("WHERE", "id", $this->id)));
 			}
 			$db->runBatch();
+		}
+	}
+	
+	/**
+	 * commit
+	 * Collects up all object attributes, checks whether they have changed and commits to the database as necessary.
+	 * Saves back the object ID as an attribute.
+	 * 
+	 * @return	void
+	 * @author	Russell Newman
+	 **/
+	public function commit() {
+		
+		// Bundle all object vars up into an array, excluding ormSettings and objects (related objects are copied via xyz_id fields)
+		foreach($this as $name => $obj) if($name != "ormSettings" and !is_object($obj)) $set[$name] = $obj;
+		
+		// Sort vars and check against the hash made when constructing the object (to find if any changes have been made)
+		ksort($set);
+		if(empty($this->ormSettings['objectHash']) or $this->ormSettings['objectHash'] != md5(implode("", $set))) {
+			
+			// Check for read-only and emulation modes, and prevent writing as necessary.
+			// Following line emulates an ID update, if one has been made, OR sets a fake ID of 1 (to emulate an INSERT) OR does nothing (if no ID update has been requested for an existing object).
+			if(ORM_EMULATE_WRITES and (empty($set['id']) or $set['id'] != $this->id)) $this->id = (empty($set['id'])) ? 1 : $set['id'];
+			if(ORM_READ_ONLY or ORM_EMULATE_WRITES) return;
+			
+			$db = db::singleton();
+			if(!isset($this->id)) {
+				$db->insert($set, get_class($this));
+				$db->runBatch();
+				$this->id = $db->insert_id;
+			} else {
+				$db->update($set, get_class($this), array(array("WHERE", "id", $this->id)));
+				$db->runBatch();
+				if(!empty($set['id'])) $this->id = $set['id'];
+			}
 		}
 	}
 	
