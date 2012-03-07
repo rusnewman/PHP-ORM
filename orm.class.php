@@ -113,7 +113,7 @@ abstract class orm {
 				
 				// If the updated attribute ends in _id, blank out the associated object attribute (e.g. group for group_id)
 				// This ensures that when an ID is updated, the newly related object will be served, instead of the old one
-				if(substr($subject, strlen($subject) - 3) == '_id') $this->{substr($attribute, 0, strlen($attribute)-3)} = new stdClass();
+				if(substr($subject, strlen($subject) - 3) == '_id') $this->{substr($subject, 0, strlen($subject)-3)} = new stdClass();
 				
 				// Similarly, if the updated attribute is actually a related object, update the _id attribute also (e.g. group_id for group, see above)
 				if(is_object($args[0])) $this->{$subject."_id"} = $this->$subject->getId();
@@ -217,7 +217,12 @@ abstract class orm {
 	function __destruct() {
 		
 		// Testing new commit method. If successful, the rest of this method will be deleted.
-		$this->commit();
+		try {
+			$this->commit();
+		} catch(Exception $e) {
+			if(ORM_SHOW_DEBUG) echo "An exception was encountered while running the __destruct() method for a ".get_class($this)." object. The exception was: ".$e;
+		}
+		
 		return;
 		
 		// Check for read-only and emulation modes, and prevent writing as necessary.
