@@ -1,4 +1,14 @@
 <?php
+
+/**
+ * PHP Object-Relational Mapper v0.9
+ * Copyright 2012, Russell Newman.
+ * Licenced under the MIT licence.
+ *
+ * @abstract
+ * @author		Russell Newman.
+ **/
+
 class ormCollection {
 	
 	public function &__call($function, $args) {
@@ -18,14 +28,6 @@ class ormCollection {
 	}
 }
 
-/**
- * PHP Object-Relational-Mapper v0.9
- * Copyright 2011, Russell Newman.
- * Licenced under the MIT licence.
- *
- * @abstract
- * @author		Russell Newman.
- **/
 abstract class orm {
 	
 	protected $ormSettings = array();
@@ -44,18 +46,44 @@ abstract class orm {
 		// Prevent folks from trying to create objects using IDs and fields simultaneously.
 		if(isset($id, $fields)) throw new Exception("You cannot instantiate an object using ID and and array of fields. Use one or the other, but not both simultaneously.");
 		
+		$db = db::singleton();
+		
 		// If ID is null and no fields are specified, we are creating a new object so stop processing here.
-		if($id == null and $fields == null) return;
+		if($id == null and $fields == null) {
+			$this->ormInitialiseFields();
+			return;
+		}
 		
 		// If the fields haven't been passed in through $fields, look up using the ID number
 		if($fields == null) {
-			$db = db::singleton();
+			
 			$fields = $db->oneRow("SELECT * FROM `".get_class($this)."` WHERE `id` = '$id';");
 			if(empty($fields)) throw new DomainException("No ".get_class($this)." object was found in the database with ID $id.");
 		}
 		
 		// Now set up all the fields we found in the DB (or that were passed in) as variables in the class
 		$this->ormBuildFromArray($fields);
+	}
+	
+	/**
+	 * ormInitialiseFields
+	 * Queries the database for allowed field types and sets these up in the ORM.
+	 * 
+	 * @return	null
+	 * @author	Russell Newman
+	 **/
+	private function ormInitialiseFields() {
+		// Query DB for allowed fields and datatypes
+		$db = db::singleton();
+		try {
+			$fields = $db->single("DESCRIBE `".get_class($this)."`");
+			$f = array();
+			foreach($fields as $field) $f[$field['Field']] = null;
+			// And now we initialise the object using the normal method, albeit with nulled variables.
+			$this->ormBuildFromArray($f);
+		} catch(Exception $e) {
+			throw new Exception("The ".get_class($this)." table could not be found in the database.");
+		}
 	}
 	
 	/**
@@ -267,7 +295,7 @@ abstract class orm {
 			if(ORM_READ_ONLY or ORM_EMULATE_WRITES) return;
 			
 			$db = db::singleton();
-			if(!isset($this->id)) {
+			if(empty($this->id)) {
 				$db->insert($set, get_class($this));
 				$db->runBatch();
 				$this->id = $db->insert_id;
