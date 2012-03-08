@@ -100,7 +100,20 @@ abstract class orm {
 			// When 'get' is run against this attribute (e.g. getGroup()), stdClasses are transformed into objects and returned.
 			if(substr($attribute, strlen($attribute) - 3) == '_id') $this->{substr($attribute, 0, strlen($attribute)-3)} = new stdClass();
 		}
+		$this->ormRefreshHash();
 		
+	}
+	
+	/**
+	 * ormRefreshHash
+	 * This is needed for calculating changes in the object.
+	 * Using a dirty flag is not sufficient because developers can write their own setter methods into classes that inherit the ORM, and these custom setters would not set the dirty flag.
+	 * By calculating an MD5 when the object is clean, and again when it is suspected-dirty, all instances are covered.
+	 *
+	 * @return	null
+	 * @author	Russell Newman
+	 **/
+	private function ormRefreshHash() {
 		// Bundle up object attributes and hash them. This must be done after doing htmlentities, relationships, etc
 		foreach($this as $name => $obj) if($name != "ormSettings" and !is_object($obj)) $hash[$name] = $obj;
 		// Keysort fields and hash. When destructing the object, we compare against this hash to see if anything has changed.
@@ -305,6 +318,7 @@ abstract class orm {
 				if(!empty($set['id'])) $this->id = $set['id'];
 			}
 		}
+		$this->ormRefreshHash();
 	}
 	
 	/**
