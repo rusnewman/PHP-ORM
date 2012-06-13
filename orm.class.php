@@ -9,7 +9,7 @@
  * @author		Russell Newman.
  **/
 
-class ormCollection {
+class ormCollection extends ArrayIterator {
 	
 	public function &__call($function, $args) {
 		if(preg_match("/^order_by_(.*?)_?(asc|desc)?$/", $function, $matches)) {
@@ -354,7 +354,7 @@ abstract class orm {
 		
 		// Check to see if children elements are already loaded. Load them if we need them.
 		if(empty($this->{$object."_children"}->elements)) {
-			$this->{$object."_children"}->elements = array();
+			$this->{$object."_children"}->elements = new ormCollection();
 			$this->{$object."_children"}->order = $order;
 			$db = db::singleton();
 			if($where != null) $where = " AND $where";
